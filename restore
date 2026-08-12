@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+
+# Restore - restore an incremental backup chain created by GNU tar
+# https://www.gnu.org/software/tar/manual/html_chapter/Backups.html
+
+import os
+import sys
+import glob
+import time
+import shutil
+import datetime
+import subprocess
+
+from datetime import datetime
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+
+def can_restore(args, filename: str) -> bool:
+    '''
+    Compare the file's timesatamp to the limit provided by the user
+    '''
+    if args.to_date is None:
+        return True
+
+    mtime = int(os.path.getmtime(filename))
+
+    return mtime < args.to_date
+
+
+def restore(args) -> bool:
+    ''' Execute the restore '''
+
+    def extract(args) -> int:
+        proc = subprocess.Popen(args, stdin=None, stdout=None)
+
+        try:
+            while proc.wait() is None:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            proc.kill()
+
+        return proc.returncode
+
+    is_7zip = args.name.endswith('.7z')
+    assert not is_7zip, "7-Zip compression is not currently handled!"
+
+    target_name = args.name.split('-')[0]
+    extension = args.name.split('.')[-1]
+
+    full_path = os.path.join(args.parent, target_name)
+    if os.path.exists(full_path):
+        print(f"Target: {full_path}")
+        print("The target folder already exists!  Overwrite it?")
+        sys.exit(0)
+
+    # yapf: disable
+    common_args = [
+        'tar',
+        '--extract',
+        '--listed-incremental=/dev/null',
+        f'--directory={args.parent}'
+    ]
+    # yapf: enable
+
+    tar_args = common_args + [f'--file={args.name}']
+
+    #print(filename)
+    #print(tar_args)
+    #sys.exit(0)
+
+    result = 0
+
+    if can_restore(args, args.name):
+        # extract the level 0 archive first
+        print(f'Extracting: {args.name} to {full_path}...')
+        result = extract(tar_args)
+        if result != 0:
+            # recursively remove the target folder
+            os.chdir(args.parent)
+            shutil.rmtree(target_name, ignore_errors=True)
+        else:
+            # extract incrementals
+            incr = 1
+            filename = f'{target_name}-incr-{incr}.tar.{extension}'
+            while os.path.exists(filename):
+                if can_restore(args, filename):
+                    tar_args = common_args + [f'--file={filename}']
+                    #print(tar_args)
+                    print(f'Extracting: {filename} to {full_path}...')
+                    result = extract(tar_args)
+                    if result != 0:
+                        # recursively remove the target folder
+                        os.chdir(args.parent)
+                        shutil.rmtree(target_name, ignore_errors=True)
+                        break
+                incr += 1
+                filename = f'{target_name}-incr-{incr}.tar.{extension}'
+
+    if args.to_date is not None:
+        print(f'Restored up to "{args.to_date_str}" limit.')
+
+    return result == 0
+
+
+def oopsie(parser, msg: str) -> None:
+    print(msg)
+    parser.print_help()
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser(
+        prog='restore',
+        description='Restore an incremental backup created by GNU tar',
+        formatter_class=ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument('--parent',
+                        type=str,
+                        default=None,
+                        help='The PARENT folder to use when restoring.')
+    parser.add_argument('--name',
+                        type=str,
+                        default=None,
+                        help="The level 0 archive for the backup")
+    # restore --parent /home/bob/BiggerData/backup --to-date 'Aug 12 2026 2:10PM'
+    parser.add_argument('--to-date',
+                        type=str,
+                        default=None,
+                        help="Restore up to the provided date/time stamp")
+
+    args = parser.parse_args()
+
+    if args.parent is None:
+        oopsie(parser, "A target folder is required!\n")
+
+    if (args.parent is not None) and (not os.path.isdir(args.parent)):
+        oopsie(parser,
+               "The parent folder does not exist or is not a directory!\n")
+
+    if args.name is None:
+        # figure it out from what's in the current directory
+        items = glob.glob('*-full.tar*')
+        if len(items) == 0:
+            oopsie(parser,
+                   "Cannot implicitly locate the base name for the backup!\n")
+
+        args.name = items[0]
+
+    if args.to_date is not None:
+        # convert to EPOCH time
+        args.to_date_str = args.to_date
+        args.to_date = int(
+            datetime.strptime(args.to_date, '%b %d %Y %I:%M%p').timestamp())
+
+    sys.exit(restore(args))

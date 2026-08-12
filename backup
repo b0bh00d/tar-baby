@@ -1,0 +1,217 @@
+#!/usr/bin/env python3
+
+# Backup - incremental backup system using GNU tar
+# https://www.gnu.org/software/tar/manual/html_chapter/Backups.html
+
+import os
+import sys
+import time
+import shutil
+import subprocess
+
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+
+COMP_EXT = {
+    # comptune: xz -9 -T 12 -M 16384MiB
+    'xz': 'xz',  # best results
+    'gzip': 'gz',
+    # comptune: zstd -19 -T0
+    'zstd': 'zst',
+    # comptune: -mx=9 -mmt=$(nproc --all)
+    '7zip': '7z'  # 7-Zip doesn't integrate smoothly, so probably won't support
+}
+
+
+def get_next_incr_number(args) -> int:
+    '''
+    Determine the next incremental backup number (returns 0 if this is an
+    initial backup)
+    '''
+    extension = '.tar'
+    if args.compression is not None:
+        extension = f'{extension}.{COMP_EXT[args.compression]}'
+
+    fullname = f'{args.name}-full{extension}'
+    if os.path.exists(fullname):
+        incr = 0
+        while True:
+            filename = f'{args.name}-incr-{incr + 1}{extension}'
+            if not os.path.exists(filename):
+                return incr + 1
+            incr += 1
+
+    return 0
+
+
+def backup(args, incr: int = 0) -> bool:
+    ''' Execute the backup '''
+    extension = '.tar'
+    level0_backup = incr == 0
+    is_7zip = args.compression == "7zip"
+    root_path = os.path.dirname(args.folder)
+    dir_name = os.path.basename(args.folder)
+    snapshot = f'{args.snapshot}.lvl-0' if level0_backup else f'{args.snapshot}.lvl-1'
+    snapshot_backup = f'{snapshot}.bak'
+
+    tar_args = ['tar']
+    seven_args = ['7z', 'a']
+
+    if args.comptune is not None:
+        if is_7zip:
+            if args.comptune.startswith('7z '):
+                args.comptune = args.comptune.removeprefix('7z ')
+            seven_args += args.comptune.split()
+        else:
+            tar_args += ['-I', args.comptune]
+
+    # yapf: disable
+    tar_args += [
+        '--create',
+        f'--directory={root_path}',
+        f'--listed-incremental={snapshot}',
+        '--exclude=lost+found'
+    ]
+    # yapf: enable
+
+    if (not is_7zip) and (args.compression is not None):
+        extension = f'{extension}.{COMP_EXT[args.compression]}'
+        if args.comptune is None:
+            tar_args.append(
+                '--auto-compress')  # auto compression based on extension
+
+    if level0_backup:
+        # full (initial) backup
+        assert not os.path.exists(snapshot)
+        filename = f'{args.name}-full{extension}'
+    else:
+        # incremental backup
+        filename = f'{args.name}-incr-{incr}{extension}'
+        # create a backup of the snapshot file
+        if os.path.exists(snapshot_backup):
+            os.remove(snapshot_backup)
+        shutil.copy2(snapshot, snapshot_backup)
+
+    backup_name = filename
+
+    assert os.path.exists(args.folder) and \
+        os.path.isdir(args.folder), f'Target folder "{args.folder}" does not exist!'
+
+    tar_args.append(f'--file={backup_name}')
+    seven_args += [f'{backup_name}.7z', backup_name]
+
+    tar_args.append(f'{dir_name}/')
+
+    #print(filename)
+    #print(tar_args)
+    #if is_7zip:
+    #    print(seven_args)
+    #sys.exit(0)
+
+    seven_p = None
+    if is_7zip:
+        print("Launching tar archiving...")
+    tar_p = subprocess.Popen(tar_args, stdin=None, stdout=None)
+
+    try:
+        while tar_p.wait() is None:
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        # clean up whatever we were creating
+        os.remove(backup_name)
+        if level0_backup:
+            os.remove(snapshot)
+        else:
+            # remove any new snapshot file and restore the backup
+            os.remove(snapshot)
+            os.rename(snapshot_backup, snapshot)
+
+        tar_p.kill()
+
+    returncode = tar_p.returncode
+
+    if (returncode == 0) and os.path.exists(snapshot_backup):
+        os.remove(snapshot_backup)
+
+    if (returncode == 0) and is_7zip:
+        print("Launching 7-zip compression...")
+        seven_p = subprocess.Popen(seven_args,
+                                   stdin=None,
+                                   stdout=None,
+                                   text=True)
+        try:
+            while seven_p.wait() is None:
+                time.sleep(1.0)
+        except KeyboardInterrupt:
+            # clean up whatever we were creating
+            if os.path.exists(f'{backup_name}.7z'):
+                os.remove(f'{backup_name}.7z')
+            seven_p.kill()
+
+        returncode = seven_p.returncode
+        if returncode == 0:
+            os.remove(backup_name)
+
+    if level0_backup:
+        # create a new level 1 snapshot file
+        os.rename(snapshot, f'{args.snapshot}.lvl-1')
+
+    return returncode == 0
+
+
+def oopsie(parser, msg: str) -> None:
+    print(msg)
+    parser.print_help()
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser(
+        prog='backup',
+        description='Incrementally backup a folder using tar',
+        formatter_class=ArgumentDefaultsHelpFormatter)
+
+    # backup --folder /home/bob/projects --comptune "xz -9 -T 12 -M 16384MiB" --compression xz
+    parser.add_argument('--folder',
+                        type=str,
+                        default=None,
+                        help='The folder to back up.')
+    parser.add_argument('--name',
+                        type=str,
+                        default=None,
+                        help="The base name for the backup files")
+    parser.add_argument(
+        '--compression',
+        type=str,
+        default=None,
+        help="Enable compression of backup files (xz, gzip, zstd).")
+    parser.add_argument('--snapshot',
+                        type=str,
+                        default='snapshot',
+                        help="Specify the 'snapshot' file name.")
+    parser.add_argument(
+        '--comptune',
+        type=str,
+        default=None,
+        help="Specific compression settings for '--compression'.")
+
+    args = parser.parse_args()
+
+    if args.folder is None:
+        oopsie(parser, "A target folder is required!\n")
+
+    if (args.folder is not None) and (not os.path.isdir(args.folder)):
+        oopsie(parser,
+               "The target folder does not exist or is not a directory!\n")
+
+    if (args.folder is not None) and (args.name is None):
+        args.name = os.path.basename(args.folder)
+
+    if args.compression is None:
+        args.comptune = None
+
+    if (args.compression is not None) and \
+        (args.compression not in list(COMP_EXT.keys())):
+        oopsie(parser,
+               f"Unknown compression type selected: {args.compression}!\n")
+
+    sys.exit(backup(args, get_next_incr_number(args)))
