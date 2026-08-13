@@ -51,7 +51,9 @@ def backup(args, incr: int = 0) -> bool:
     is_7zip = args.compression == "7zip"
     root_path = os.path.dirname(args.folder)
     dir_name = os.path.basename(args.folder)
-    snapshot = f'{args.snapshot}.lvl-0' if level0_backup else f'{args.snapshot}.lvl-1'
+    snapshot_lvl0 = f'{args.snapshot}.lvl-0'
+    snapshot_lvl1 = f'{args.snapshot}.lvl-1'
+    snapshot = snapshot_lvl0 if level0_backup else snapshot_lvl1
     snapshot_backup = f'{snapshot}.bak'
 
     tar_args = ['tar']
@@ -153,9 +155,9 @@ def backup(args, incr: int = 0) -> bool:
     #     if returncode == 0:
     #         os.remove(backup_name)
 
-    if level0_backup:
-        # create a new level 1 snapshot file
-        os.rename(snapshot, f'{args.snapshot}.lvl-1')
+    if level0_backup and os.path.exists(snapshot_lvl0):
+        # switch to a level 1 snapshot file for incrementals
+        os.rename(snapshot_lvl0, snapshot_lvl1)
 
     return True if args.ignore_errors else returncode == 0
 
