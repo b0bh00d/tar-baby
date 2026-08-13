@@ -69,7 +69,8 @@ def backup(args, incr: int = 0) -> bool:
         '--create',
         f'--directory={root_path}',
         f'--listed-incremental={snapshot}',
-        '--exclude=lost+found'
+        '--exclude=lost+found',
+        '--warning=no-file-ignored',    # disable warnings about files that are ignored
     ]
     # yapf: enable
 
