@@ -41,6 +41,8 @@ def restore(args) -> bool:
 
         return proc.returncode
 
+    regard_errors = not args.ignore_errors
+
     is_7zip = args.name.endswith('.7z')
     assert not is_7zip, "7-Zip compression is not currently handled!"
 
@@ -50,8 +52,12 @@ def restore(args) -> bool:
     full_path = os.path.join(args.parent, target_name)
     if os.path.exists(full_path):
         print(f"Target: {full_path}")
-        print("The target folder already exists!  Overwrite it?")
-        sys.exit(0)
+        answer = input(
+            "The target folder already exists!  Overwrite it? [Y/n] ")
+        if len(s) == 0:
+            s = 'y'
+        if s != 'y':
+            sys.exit(0)
 
     # yapf: disable
     common_args = [
@@ -74,7 +80,7 @@ def restore(args) -> bool:
         # extract the level 0 archive first
         print(f'Extracting: {args.name} to {full_path}...')
         result = extract(tar_args)
-        if result != 0:
+        if regard_errors and (result != 0):
             # recursively remove the target folder
             os.chdir(args.parent)
             shutil.rmtree(target_name, ignore_errors=True)
@@ -88,7 +94,7 @@ def restore(args) -> bool:
                     #print(tar_args)
                     print(f'Extracting: {filename} to {full_path}...')
                     result = extract(tar_args)
-                    if result != 0:
+                    if regard_errors and (result != 0):
                         # recursively remove the target folder
                         os.chdir(args.parent)
                         shutil.rmtree(target_name, ignore_errors=True)
@@ -99,7 +105,7 @@ def restore(args) -> bool:
     if args.to_date is not None:
         print(f'Restored up to "{args.to_date_str}" limit.')
 
-    return result == 0
+    return True if args.ignore_errors else result == 0
 
 
 def oopsie(parser, msg: str) -> None:
@@ -127,6 +133,12 @@ if __name__ == "__main__":
                         type=str,
                         default=None,
                         help="Restore up to the provided date/time stamp")
+    parser.add_argument(
+        '--ignore-errors',
+        type=bool,
+        default=False,
+        action="store_true",
+        help="Ignore errors generate during archive restore.")
 
     args = parser.parse_args()
 

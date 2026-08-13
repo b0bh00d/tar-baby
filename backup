@@ -47,6 +47,7 @@ def backup(args, incr: int = 0) -> bool:
     ''' Execute the backup '''
     extension = '.tar'
     level0_backup = incr == 0
+    regard_errors = not args.ignore_errors
     is_7zip = args.compression == "7zip"
     root_path = os.path.dirname(args.folder)
     dir_name = os.path.basename(args.folder)
@@ -130,33 +131,33 @@ def backup(args, incr: int = 0) -> bool:
 
     returncode = tar_p.returncode
 
-    if (returncode == 0) and os.path.exists(snapshot_backup):
+    if regard_errors and (returncode == 0) and os.path.exists(snapshot_backup):
         os.remove(snapshot_backup)
 
-    if (returncode == 0) and is_7zip:
-        print("Launching 7-zip compression...")
-        seven_p = subprocess.Popen(seven_args,
-                                   stdin=None,
-                                   stdout=None,
-                                   text=True)
-        try:
-            while seven_p.wait() is None:
-                time.sleep(1.0)
-        except KeyboardInterrupt:
-            # clean up whatever we were creating
-            if os.path.exists(f'{backup_name}.7z'):
-                os.remove(f'{backup_name}.7z')
-            seven_p.kill()
+    # if (returncode == 0) and is_7zip:
+    #     print("Launching 7-zip compression...")
+    #     seven_p = subprocess.Popen(seven_args,
+    #                                stdin=None,
+    #                                stdout=None,
+    #                                text=True)
+    #     try:
+    #         while seven_p.wait() is None:
+    #             time.sleep(1.0)
+    #     except KeyboardInterrupt:
+    #         # clean up whatever we were creating
+    #         if os.path.exists(f'{backup_name}.7z'):
+    #             os.remove(f'{backup_name}.7z')
+    #         seven_p.kill()
 
-        returncode = seven_p.returncode
-        if returncode == 0:
-            os.remove(backup_name)
+    #     returncode = seven_p.returncode
+    #     if returncode == 0:
+    #         os.remove(backup_name)
 
     if level0_backup:
         # create a new level 1 snapshot file
         os.rename(snapshot, f'{args.snapshot}.lvl-1')
 
-    return returncode == 0
+    return True if args.ignore_errors else returncode == 0
 
 
 def oopsie(parser, msg: str) -> None:
@@ -194,6 +195,12 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Specific compression settings for '--compression'.")
+    parser.add_argument(
+        '--ignore-errors',
+        type=bool,
+        default=False,
+        action="store_true",
+        help="Ignore errors generate during archive creation.")
 
     args = parser.parse_args()
 
