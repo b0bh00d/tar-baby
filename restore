@@ -54,9 +54,9 @@ def restore(args) -> bool:
         print(f"Target: {full_path}")
         answer = input(
             "The target folder already exists!  Overwrite it? [Y/n] ")
-        if len(s) == 0:
-            s = 'y'
-        if s != 'y':
+        if len(answer) == 0:
+            answer = 'y'
+        if answer != 'y':
             sys.exit(0)
 
     # yapf: disable
