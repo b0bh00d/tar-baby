@@ -108,6 +108,21 @@ def restore(args) -> bool:
     return True if args.ignore_errors else result == 0
 
 
+def format_seconds(seconds: float | int) -> str:
+    str_secs = ''
+    int_secs = int(seconds)
+
+    if seconds < 60:
+        str_secs = f"{int_secs} seconds"
+    elif seconds < 3600:
+        str_secs = "{:.2f} minutes".format(int_secs / 60.0)
+    elif seconds < 86400:
+        str_secs = "{:.2f} hours".format(int_secs / 3600.0)
+    else:
+        str_secs = "{:.2f} days".format(int_secs / 86400.0)
+    return str_secs
+
+
 def oopsie(parser, msg: str) -> None:
     print(msg)
     parser.print_help()
@@ -163,4 +178,9 @@ if __name__ == "__main__":
         args.to_date = int(
             datetime.strptime(args.to_date, '%b %d %Y %I:%M%p').timestamp())
 
-    sys.exit(restore(args))
+    start = time.time()
+    result = restore(args)
+    print(
+        f'Restored backup of {os.path.join(args.parent, args.name)} in {format_seconds(time.time()-start)}'
+    )
+    sys.exit(result)

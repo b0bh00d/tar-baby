@@ -42,7 +42,6 @@ def get_next_incr_number(args) -> int:
 
     return 0
 
-
 def backup(args, incr: int = 0) -> bool:
     ''' Execute the backup '''
     extension = '.tar'
@@ -162,6 +161,21 @@ def backup(args, incr: int = 0) -> bool:
     return True if args.ignore_errors else returncode == 0
 
 
+def format_seconds(seconds: float | int) -> str:
+    str_secs = ''
+    int_secs = int(seconds)
+
+    if seconds < 60:
+        str_secs = f"{int_secs} seconds"
+    elif seconds < 3600:
+        str_secs = "{:.2f} minutes".format(int_secs / 60.0)
+    elif seconds < 86400:
+        str_secs = "{:.2f} hours".format(int_secs / 3600.0)
+    else:
+        str_secs = "{:.2f} days".format(int_secs / 86400.0)
+    return str_secs
+
+
 def oopsie(parser, msg: str) -> None:
     print(msg)
     parser.print_help()
@@ -197,11 +211,10 @@ if __name__ == "__main__":
         type=str,
         default=None,
         help="Specific compression settings for '--compression'.")
-    parser.add_argument(
-        '--ignore-errors',
-        default=False,
-        action="store_true",
-        help="Ignore errors generate during archive creation.")
+    parser.add_argument('--ignore-errors',
+                        default=False,
+                        action="store_true",
+                        help="Ignore errors generate during archive creation.")
 
     args = parser.parse_args()
 
@@ -223,4 +236,9 @@ if __name__ == "__main__":
         oopsie(parser,
                f"Unknown compression type selected: {args.compression}!\n")
 
-    sys.exit(backup(args, get_next_incr_number(args)))
+    start = time.time()
+    result = backup(args, get_next_incr_number(args))
+    print(
+        f'Completed backup of {args.folder} in {format_seconds(time.time()-start)}'
+    )
+    sys.exit(result)
