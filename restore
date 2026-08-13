@@ -135,7 +135,6 @@ if __name__ == "__main__":
                         help="Restore up to the provided date/time stamp")
     parser.add_argument(
         '--ignore-errors',
-        type=bool,
         default=False,
         action="store_true",
         help="Ignore errors generate during archive restore.")

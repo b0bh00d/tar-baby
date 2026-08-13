@@ -197,7 +197,6 @@ if __name__ == "__main__":
         help="Specific compression settings for '--compression'.")
     parser.add_argument(
         '--ignore-errors',
-        type=bool,
         default=False,
         action="store_true",
         help="Ignore errors generate during archive creation.")
